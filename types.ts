@@ -1,0 +1,45 @@
+import React from 'react';
+
+export type ElementType = 'text' | 'image' | 'box' | 'circle' | 'line' | 'svg';
+
+export interface EditorElement {
+  id: string;
+  name: string; // Layer name
+  type: ElementType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  content?: string; 
+  style: React.CSSProperties;
+  isVisible: boolean;
+  isLocked: boolean;
+}
+
+export interface Page {
+  id: string;
+  name: string;
+  elements: EditorElement[];
+}
+
+export interface CanvasSettings {
+  backgroundColor: string;
+  showHorizontalRuler: boolean;
+  showVerticalRuler: boolean;
+  showGuides: boolean;
+  autoSave: boolean;
+}
+
+export interface TemplateState {
+  name: string;
+  pages: Page[];
+  activePageId: string;
+  selectedId: string | null;
+  canvasSettings: CanvasSettings;
+  horizontalGuides: number[];
+  verticalGuides: number[];
+}
+
+export const A4_WIDTH = 794;
+export const A4_HEIGHT = 1123;

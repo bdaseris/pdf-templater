@@ -1,0 +1,432 @@
+import React, { useRef, useState, useEffect } from 'react';
+import { EditorElement, A4_WIDTH, A4_HEIGHT } from '../types';
+import Ruler from './Ruler';
+import { RotateCw, Lock } from 'lucide-react';
+import FloatingShapeToolbar from './FloatingShapeToolbar';
+
+interface CanvasProps {
+  elements: EditorElement[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  onUpdate: (id: string, updates: Partial<EditorElement>) => void;
+  onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  canvasSettings: { backgroundColor: string; showHorizontalRuler: boolean; showVerticalRuler: boolean; showGuides: boolean };
+  horizontalGuides: number[];
+  verticalGuides: number[];
+  onAddGuide: (type: 'horizontal' | 'vertical', pos: number) => void;
+  onRemoveGuide: (type: 'horizontal' | 'vertical', index: number) => void;
+}
+
+type InteractionMode = 'idle' | 'dragging_element' | 'resizing' | 'rotating' | 'dragging_guide';
+type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+
+interface ActiveGuideState {
+  type: 'horizontal' | 'vertical';
+  index?: number;
+  pos: number;
+}
+
+const Canvas: React.FC<CanvasProps> = ({ 
+  elements, 
+  selectedId, 
+  onSelect, 
+  onUpdate, 
+  onDelete,
+  onDuplicate,
+  canvasSettings,
+  horizontalGuides,
+  verticalGuides,
+  onAddGuide,
+  onRemoveGuide
+}) => {
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
+  const [scrollPos, setScrollPos] = useState({ x: 0, y: 0 });
+
+  // Interaction State
+  const [mode, setMode] = useState<InteractionMode>('idle');
+  const [activeHandle, setActiveHandle] = useState<ResizeHandle | null>(null);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [initialElementState, setInitialElementState] = useState<{ x: number, y: number, w: number, h: number, r: number } | null>(null);
+  
+  // Guide Dragging State
+  const [activeGuide, setActiveGuide] = useState<ActiveGuideState | null>(null);
+
+  // Sync scroll for rulers
+  const handleScroll = () => {
+    if (scrollContainerRef.current) {
+      setScrollPos({
+        x: scrollContainerRef.current.scrollLeft,
+        y: scrollContainerRef.current.scrollTop
+      });
+    }
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selectedId) return;
+      
+      // Ignore if typing in input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        onDelete(selectedId);
+      }
+      
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+        e.preventDefault();
+        onDuplicate(selectedId);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId, onDelete, onDuplicate]);
+
+  // Deselect on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        (target.id === 'canvas-container' || target.id === 'canvas-root') && 
+        !target.closest('.sidebar-control') &&
+        !target.closest('.element-node') &&
+        !target.closest('.floating-toolbar') // Do not deselect if clicking on floating toolbar
+      ) {
+        onSelect(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onSelect]);
+
+  // --- Helpers ---
+  const getMousePos = (e: MouseEvent | React.MouseEvent) => {
+    if (!canvasRef.current) return { x: 0, y: 0 };
+    const rect = canvasRef.current.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  };
+
+  const snapToGuides = (val: number, guides: number[]) => {
+    const threshold = 5;
+    for (const g of guides) {
+      if (Math.abs(val - g) < threshold) return g;
+    }
+    return val;
+  };
+
+  // --- Handlers ---
+  const handleElementMouseDown = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const el = elements.find(e => e.id === id);
+    if (!el || !el.isVisible) return;
+    onSelect(id);
+    if (el.isLocked) return;
+    setMode('dragging_element');
+    const mouse = getMousePos(e);
+    setDragStart(mouse);
+    setInitialElementState({ x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0 });
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent, handle: ResizeHandle) => {
+    e.stopPropagation();
+    const el = elements.find(e => e.id === selectedId);
+    if (!el || el.isLocked) return;
+    setMode('resizing');
+    setActiveHandle(handle);
+    const mouse = getMousePos(e);
+    setDragStart(mouse);
+    setInitialElementState({ x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0 });
+  };
+
+  const handleRotateMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const el = elements.find(e => e.id === selectedId);
+    if (!el || el.isLocked) return;
+    setMode('rotating');
+    const mouse = getMousePos(e); // Not strictly needed for rotation start but consistent
+    setInitialElementState({ x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0 });
+  };
+
+  // Ruler & Guide Handlers
+  const handleRulerDragStart = (e: React.MouseEvent, type: 'horizontal' | 'vertical') => {
+    e.preventDefault();
+    setMode('dragging_guide');
+    // Calculate initial pos relative to canvas, accounting for current scroll
+    const rect = scrollContainerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    // e.clientX is global. We need pos relative to canvas.
+    // However, for creation, we can just track screen delta or use the offset from the ruler.
+    // Simpler: Set initial visual pos from mouse, update in move.
+    setActiveGuide({ type, pos: type === 'horizontal' ? e.clientY : e.clientX }); 
+  };
+
+  const handleGuideMouseDown = (e: React.MouseEvent, type: 'horizontal' | 'vertical', index: number, currentPos: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMode('dragging_guide');
+    setActiveGuide({ type, index, pos: currentPos });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const mouse = getMousePos(e);
+
+    if (mode === 'dragging_guide' && activeGuide) {
+       if (!canvasRef.current) return;
+       const rect = canvasRef.current.getBoundingClientRect();
+       
+       // Calculate position relative to the canvas content (0,0 is top-left of A4 page)
+       let relativePos = 0;
+       if (activeGuide.type === 'horizontal') {
+         relativePos = e.clientY - rect.top;
+       } else {
+         relativePos = e.clientX - rect.left;
+       }
+       
+       setActiveGuide(prev => ({ ...prev!, pos: relativePos }));
+       return;
+    }
+
+    if (!selectedId || !initialElementState) return;
+
+    if (mode === 'dragging_element') {
+      const dx = mouse.x - dragStart.x;
+      const dy = mouse.y - dragStart.y;
+      
+      let newX = initialElementState.x + dx;
+      let newY = initialElementState.y + dy;
+
+      if (canvasSettings.showGuides) {
+        newX = snapToGuides(newX, verticalGuides);
+        newY = snapToGuides(newY, horizontalGuides);
+      }
+      onUpdate(selectedId, { x: newX, y: newY });
+    } else if (mode === 'resizing' && activeHandle) {
+      const dx = mouse.x - dragStart.x;
+      const dy = mouse.y - dragStart.y;
+      const { x, y, w, h } = initialElementState;
+      let newX = x, newY = y, newW = w, newH = h;
+
+      if (activeHandle.includes('e')) newW = Math.max(10, w + dx);
+      if (activeHandle.includes('w')) { newW = Math.max(10, w - dx); newX = x + dx; }
+      if (activeHandle.includes('s')) newH = Math.max(10, h + dy);
+      if (activeHandle.includes('n')) { newH = Math.max(10, h - dy); newY = y + dy; }
+
+      onUpdate(selectedId, { x: newX, y: newY, width: newW, height: newH });
+    } else if (mode === 'rotating') {
+      const el = elements.find(e => e.id === selectedId);
+      if (!el) return;
+      const cx = el.x + el.width / 2;
+      const cy = el.y + el.height / 2;
+      const angleRad = Math.atan2(mouse.y - cy, mouse.x - cx);
+      let angleDeg = (angleRad * 180 / Math.PI) + 90;
+      onUpdate(selectedId, { rotation: angleDeg });
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (mode === 'dragging_guide' && activeGuide) {
+      // Logic to determine if we should delete the guide (dragged off canvas)
+      // "Off canvas" loosely defined as negative coordinate or way past max
+      const isRemoval = activeGuide.pos < -20 || 
+                       (activeGuide.type === 'horizontal' && activeGuide.pos > A4_HEIGHT + 20) || 
+                       (activeGuide.type === 'vertical' && activeGuide.pos > A4_WIDTH + 20);
+      
+      if (activeGuide.index !== undefined) {
+          onRemoveGuide(activeGuide.type, activeGuide.index);
+          if (!isRemoval) onAddGuide(activeGuide.type, activeGuide.pos);
+      } else {
+          if (!isRemoval) onAddGuide(activeGuide.type, activeGuide.pos);
+      }
+      setActiveGuide(null);
+    }
+    setMode('idle');
+    setActiveHandle(null);
+    setInitialElementState(null);
+  };
+
+  // Grid Layout logic
+  // If ruler is hidden, size is 0
+  const rulerSize = 24; // 1.5rem / 24px
+  const topRowHeight = canvasSettings.showHorizontalRuler ? `${rulerSize}px` : '0px';
+  const leftColWidth = canvasSettings.showVerticalRuler ? `${rulerSize}px` : '0px';
+
+  // Find selected element for floating toolbar
+  const selectedElement = elements.find(el => el.id === selectedId);
+
+  return (
+    <div className="flex-1 grid h-full overflow-hidden bg-gray-200 select-none relative" 
+         style={{ gridTemplateColumns: `${leftColWidth} 1fr`, gridTemplateRows: `${topRowHeight} 1fr` }}
+         onMouseMove={handleMouseMove}
+         onMouseUp={handleMouseUp}
+         onMouseLeave={handleMouseUp}
+    >
+      {/* 1. Corner (Top-Left) */}
+      <div className="bg-gray-100 border-r border-b border-gray-300 z-50"></div>
+
+      {/* 2. Horizontal Ruler Track */}
+      <div className="relative bg-gray-100 border-b border-gray-300 overflow-hidden z-40">
+         <div style={{ transform: `translateX(-${scrollPos.x - 32}px)`, marginLeft: '32px' /* Padding offset matches canvas padding */ }}> 
+           <Ruler orientation="horizontal" length={A4_WIDTH + 200} onDragStart={(e) => handleRulerDragStart(e, 'horizontal')} />
+         </div>
+      </div>
+
+      {/* 3. Vertical Ruler Track */}
+      <div className="relative bg-gray-100 border-r border-gray-300 overflow-hidden z-40">
+         <div style={{ transform: `translateY(-${scrollPos.y - 32}px)`, marginTop: '32px' /* Padding offset matches canvas padding */ }}>
+           <Ruler orientation="vertical" length={A4_HEIGHT + 200} onDragStart={(e) => handleRulerDragStart(e, 'vertical')} />
+         </div>
+      </div>
+
+      {/* 4. Main Scrollable Area */}
+      <div 
+        ref={scrollContainerRef}
+        id="canvas-container"
+        className="overflow-auto bg-gray-200 relative p-8 scroll-smooth"
+        onScroll={handleScroll}
+      >
+        <div 
+            ref={canvasRef}
+            id="canvas-root"
+            className="bg-white shadow-xl relative transition-colors duration-200 print-container"
+            style={{ 
+            width: `${A4_WIDTH}px`, 
+            height: `${A4_HEIGHT}px`,
+            minWidth: `${A4_WIDTH}px`, 
+            minHeight: `${A4_HEIGHT}px`,
+            backgroundColor: canvasSettings.backgroundColor,
+            cursor: mode === 'dragging_guide' ? (activeGuide?.type === 'horizontal' ? 'row-resize' : 'col-resize') : 'default'
+            }}
+        >
+            {/* Guides */}
+            {canvasSettings.showGuides && (
+            <>
+                {verticalGuides.map((g, i) => (
+                <div 
+                    key={`v-${i}`} 
+                    className="absolute top-0 bottom-0 z-40 w-4 -ml-2 flex justify-center group cursor-col-resize hover:bg-cyan-500/10" 
+                    style={{ left: g, display: activeGuide?.index === i && activeGuide?.type === 'vertical' ? 'none' : 'flex' }}
+                    onMouseDown={(e) => handleGuideMouseDown(e, 'vertical', i, g)}
+                >
+                    <div className="h-full w-px bg-cyan-500"></div>
+                </div>
+                ))}
+                {horizontalGuides.map((g, i) => (
+                <div 
+                    key={`h-${i}`} 
+                    className="absolute left-0 right-0 z-40 h-4 -mt-2 flex flex-col justify-center group cursor-row-resize hover:bg-cyan-500/10" 
+                    style={{ top: g, display: activeGuide?.index === i && activeGuide?.type === 'horizontal' ? 'none' : 'flex' }}
+                    onMouseDown={(e) => handleGuideMouseDown(e, 'horizontal', i, g)}
+                >
+                    <div className="w-full h-px bg-cyan-500"></div>
+                </div>
+                ))}
+                
+                {/* Active Dragging Guide Visual */}
+                {activeGuide && (
+                <div 
+                    className={`absolute bg-cyan-500 z-50 pointer-events-none ${activeGuide.type === 'horizontal' ? 'w-full h-px' : 'h-full w-px'}`}
+                    style={{ 
+                    left: activeGuide.type === 'vertical' ? activeGuide.pos : 0, 
+                    top: activeGuide.type === 'horizontal' ? activeGuide.pos : 0 
+                    }}
+                />
+                )}
+            </>
+            )}
+
+            {/* Elements */}
+            {elements.map(el => {
+            if (!el.isVisible) return null;
+            const isSelected = selectedId === el.id;
+            
+            return (
+                <div
+                key={el.id}
+                className={`absolute element-node group ${isSelected ? 'z-20' : 'z-10'}`}
+                style={{
+                    left: el.x,
+                    top: el.y,
+                    width: el.width,
+                    height: el.height,
+                    transform: `rotate(${el.rotation || 0}deg)`,
+                    cursor: el.isLocked ? 'default' : 'move'
+                }}
+                onMouseDown={(e) => handleElementMouseDown(e, el.id)}
+                >
+                <div className="w-full h-full relative" style={el.type === 'svg' ? {} : el.style}>
+                    {el.type === 'text' && <div className="w-full h-full overflow-hidden break-words pointer-events-none whitespace-pre-wrap">{el.content}</div>}
+                    {el.type === 'image' && <img src={el.content} className="w-full h-full object-cover pointer-events-none" style={{ borderRadius: el.style.borderRadius }} />}
+                    {(el.type === 'box' || el.type === 'circle' || el.type === 'line') && (
+                        <div className="w-full h-full pointer-events-none" style={{ borderRadius: el.style.borderRadius }}></div>
+                    )}
+                    {el.type === 'svg' && (
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full pointer-events-none overflow-visible">
+                            <path 
+                                d={el.content} 
+                                fill={el.style.backgroundColor || 'transparent'} 
+                                stroke={el.style.borderColor || 'transparent'}
+                                strokeWidth={parseInt(el.style.borderWidth?.toString() || '0') * (100 / el.width)} // Scale stroke relative to viewBox
+                                strokeDasharray={el.style.borderStyle === 'dashed' ? '5,5' : el.style.borderStyle === 'dotted' ? '2,2' : undefined}
+                                vectorEffect="non-scaling-stroke"
+                            />
+                        </svg>
+                    )}
+                </div>
+
+                {el.isLocked && isSelected && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/5 border-2 border-red-400">
+                        <Lock className="text-red-500" size={24} />
+                    </div>
+                )}
+
+                {isSelected && !el.isLocked && (
+                    <>
+                    <div className="absolute inset-0 border-2 border-blue-500 pointer-events-none"></div>
+                    
+                    {/* Rotation Handle - Moved to Bottom */}
+                    <div 
+                        className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center cursor-move hover:bg-blue-50 z-30"
+                        onMouseDown={handleRotateMouseDown}
+                    >
+                        <RotateCw size={12} className="text-gray-600" />
+                    </div>
+                    <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 h-8 w-px bg-blue-500 pointer-events-none"></div>
+
+                    <div className="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-blue-500 rounded-sm cursor-nw-resize z-30" onMouseDown={(e) => handleResizeMouseDown(e, 'nw')} />
+                    <div className="absolute -top-1.5 left-1/2 -translate-x-1.5 w-3 h-3 bg-white border border-blue-500 rounded-sm cursor-n-resize z-30" onMouseDown={(e) => handleResizeMouseDown(e, 'n')} />
+                    <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-blue-500 rounded-sm cursor-ne-resize z-30" onMouseDown={(e) => handleResizeMouseDown(e, 'ne')} />
+                    
+                    <div className="absolute top-1/2 -translate-y-1.5 -left-1.5 w-3 h-3 bg-white border border-blue-500 rounded-sm cursor-w-resize z-30" onMouseDown={(e) => handleResizeMouseDown(e, 'w')} />
+                    <div className="absolute top-1/2 -translate-y-1.5 -right-1.5 w-3 h-3 bg-white border border-blue-500 rounded-sm cursor-e-resize z-30" onMouseDown={(e) => handleResizeMouseDown(e, 'e')} />
+
+                    <div className="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-blue-500 rounded-sm cursor-sw-resize z-30" onMouseDown={(e) => handleResizeMouseDown(e, 'sw')} />
+                    <div className="absolute -bottom-1.5 left-1/2 -translate-x-1.5 w-3 h-3 bg-white border border-blue-500 rounded-sm cursor-s-resize z-30" onMouseDown={(e) => handleResizeMouseDown(e, 's')} />
+                    <div className="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-blue-500 rounded-sm cursor-se-resize z-30" onMouseDown={(e) => handleResizeMouseDown(e, 'se')} />
+                    </>
+                )}
+                </div>
+            );
+            })}
+            
+            {/* Floating Shape Toolbar rendered here to be relative to canvas content but technically it is absolute positioned by coordinates */}
+            {selectedElement && !selectedElement.isLocked && (
+                <div className="floating-toolbar">
+                  <FloatingShapeToolbar element={selectedElement} elements={elements} onUpdate={onUpdate} />
+                </div>
+            )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Canvas;
