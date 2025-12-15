@@ -287,11 +287,11 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
 
   return (
     <div 
-        className="flex w-[480px] h-[280px] bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden text-slate-800 font-sans" 
+        className="flex w-[480px] h-[310px] bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden text-slate-800 font-sans" 
         onMouseDown={e => e.stopPropagation()}
     >
       {/* Left Column: Picker Controls */}
-      <div className="w-[240px] p-4 flex flex-col gap-4 border-r border-gray-100 bg-white z-10 shrink-0">
+      <div className="w-[210px] p-3 flex flex-col gap-3 border-r border-gray-100 bg-white z-10 shrink-0">
         
         {/* Header: Tabs & Tools */}
         <div className="flex items-center justify-between">
@@ -343,7 +343,7 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
                 onMouseDown={handleSatValMouseDown}
             >
                 <div 
-                className="absolute w-3 h-3 border-2 border-white rounded-full shadow-sm -ml-1.5 -mt-1.5 pointer-events-none"
+                className="absolute w-3.5 h-3.5 border-2 border-white rounded-full shadow-sm -ml-[7px] -mt-[7px] pointer-events-none"
                 style={{
                     left: `${hsva.s}%`,
                     top: `${100 - hsva.v}%`,
@@ -364,21 +364,31 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
                     onMouseDown={handleHueMouseDown}
                 >
                     <div 
-                    className="absolute w-3 h-3 bg-white border border-gray-300 rounded-full shadow-sm -mt-[1px] -ml-1.5 pointer-events-none"
-                    style={{ left: `${(hsva.h / 360) * 100}%` }}
+                    className="absolute w-3.5 h-3.5 rounded-full shadow-sm -mt-[2px] -ml-1.5 pointer-events-none border-2 border-white ring-1 ring-black/5"
+                    style={{ 
+                        left: `${(hsva.h / 360) * 100}%`,
+                        backgroundColor: `hsl(${hsva.h}, 100%, 50%)`
+                    }}
                     />
                 </div>
 
-                {/* Alpha */}
+                {/* RESTORE POINT: Alpha Slider Modification - Background appearance updated to use SVG pattern matching reference image */}
                 <div 
                     ref={alphaRef}
-                    className="w-full h-2.5 rounded-full relative cursor-pointer shadow-sm bg-[url('https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Grey_square_checkerboard_pattern.svg/1024px-Grey_square_checkerboard_pattern.svg.png')] bg-[length:6px_6px]"
+                    className="w-full h-2.5 rounded-full relative cursor-pointer shadow-sm border border-gray-200"
+                    style={{
+                        backgroundColor: 'white',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'%3E%3Cg fill='%23cbd5e1' fill-opacity='0.4'%3E%3Cpath fill-rule='evenodd' d='M0 0h4v4H0V0zm4 4h4v4H4V4z'/%3E%3C/g%3E%3C/svg%3E")`
+                    }}
                     onMouseDown={handleAlphaMouseDown}
                 >
                     <div className="absolute inset-0 rounded-full" style={{ background: `linear-gradient(to right, transparent, ${hsvaToHex(hsva.h, hsva.s, hsva.v, 1)})` }}></div>
                     <div 
-                    className="absolute w-3 h-3 bg-white border border-gray-300 rounded-full shadow-sm -mt-[1px] -ml-1.5 pointer-events-none"
-                    style={{ left: `${hsva.a * 100}%` }}
+                    className="absolute w-3.5 h-3.5 rounded-full shadow-sm -mt-[3px] -ml-1.5 pointer-events-none border-2 border-white ring-1 ring-black/5"
+                    style={{ 
+                        left: `${hsva.a * 100}%`,
+                        backgroundColor: hsvaToHex(hsva.h, hsva.s, hsva.v, 1)
+                    }}
                     />
                 </div>
             </div>
@@ -405,7 +415,7 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
                         spellCheck={false}
                     />
                 </div>
-                <div className="w-16 flex items-center border border-gray-300 rounded px-1 bg-white h-7 hover:border-gray-400 transition-colors">
+                <div className="w-12 flex items-center border border-gray-300 rounded px-1 bg-white h-7 hover:border-gray-400 transition-colors">
                     <input 
                         type="number"
                         min="0" max="100"
@@ -443,7 +453,7 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
             onToggle={() => setOpenSections(p => ({...p, recent: !p.recent}))}
             action={recents.length > 0 && <Trash2 size={12} className="text-gray-300 hover:text-red-500 cursor-pointer transition-colors" onClick={() => { recentColorsStore.length = 0; setRecents([]); }} />}
           >
-             <div className="flex flex-wrap gap-0.5">
+             <div className="flex flex-wrap gap-1.5">
                 {recents.map((c: string, i) => (
                     <ColorSwatch key={i} hex={c} onClick={() => updateColor(hexToHsva(c))} active={color.toLowerCase() === c.toLowerCase()} />
                 ))}
@@ -456,7 +466,7 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
             isOpen={openSections.template}
             onToggle={() => setOpenSections(p => ({...p, template: !p.template}))}
           >
-              <div className="flex flex-wrap gap-0.5">
+              <div className="flex flex-wrap gap-1.5">
                 {templateColors.map((c: string, i) => (
                     <ColorSwatch key={i} hex={c} onClick={() => updateColor(hexToHsva(c), true)} active={color.toLowerCase() === c.toLowerCase()} />
                 ))}
@@ -469,7 +479,7 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
             isOpen={openSections.default}
             onToggle={() => setOpenSections(p => ({...p, default: !p.default}))}
           >
-              <div className="grid grid-cols-8 gap-0.5">
+              <div className="grid grid-cols-8 gap-1.5">
                 {DEFAULT_COLORS.map((c: string, i) => (
                     <ColorSwatch key={i} hex={c} onClick={() => updateColor(hexToHsva(c), true)} active={color.toLowerCase() === c.toLowerCase()} />
                 ))}
