@@ -27,6 +27,13 @@ interface ActiveGuideState {
   pos: number;
 }
 
+interface SnapLine {
+  orientation: 'vertical' | 'horizontal';
+  pos: number;
+}
+
+const SNAP_THRESHOLD = 5;
+
 const Canvas: React.FC<CanvasProps> = ({ 
   elements, 
   selectedId, 
@@ -53,6 +60,9 @@ const Canvas: React.FC<CanvasProps> = ({
   
   // Guide Dragging State
   const [activeGuide, setActiveGuide] = useState<ActiveGuideState | null>(null);
+
+  // Smart Guides State
+  const [snapLines, setSnapLines] = useState<SnapLine[]>([]);
 
   // Sync scroll for rulers
   const handleScroll = () => {
@@ -223,11 +233,116 @@ const Canvas: React.FC<CanvasProps> = ({
       let newX = initialElementState.x + dx;
       let newY = initialElementState.y + dy;
 
-      if (canvasSettings.showGuides) {
+      // --- Smart Guides Logic ---
+      const activeLines: SnapLine[] = [];
+
+      // Calculate candidate points for the element being dragged
+      const currentW = initialElementState.w;
+      const currentH = initialElementState.h;
+      
+      const dLeft = newX;
+      const dRight = newX + currentW;
+      const dCenterX = newX + currentW / 2;
+      
+      const dTop = newY;
+      const dBottom = newY + currentH;
+      const dCenterY = newY + currentH / 2;
+
+      // Define targets: Canvas Center + Other Elements
+      const targets = [
+        // Canvas Centers
+        { id: 'canvas', type: 'canvas', x: 0, y: 0, width: A4_WIDTH, height: A4_HEIGHT },
+        // Other elements
+        ...elements.filter(el => el.id !== selectedId && el.isVisible)
+      ];
+
+      // SNAP VERTICAL (X-Axis)
+      let bestDx = Infinity;
+      let bestSnapX = null;
+      let snapLineX = null;
+
+      targets.forEach(target => {
+          const tLeft = target.x;
+          const tRight = target.x + target.width;
+          const tCenterX = target.x + target.width / 2;
+
+          // Points to check on Dragged Element: Left, Center, Right
+          const dPoints = [
+              { val: dLeft, offset: 0 }, 
+              { val: dCenterX, offset: currentW / 2 }, 
+              { val: dRight, offset: currentW }
+          ];
+
+          // Points to check on Target: Left, Center, Right
+          const tPoints = [tLeft, tCenterX, tRight];
+
+          dPoints.forEach(dp => {
+              tPoints.forEach(tp => {
+                  const dist = tp - dp.val;
+                  if (Math.abs(dist) < SNAP_THRESHOLD && Math.abs(dist) < Math.abs(bestDx)) {
+                      bestDx = dist;
+                      bestSnapX = tp - dp.offset;
+                      snapLineX = tp;
+                  }
+              });
+          });
+      });
+
+      // SNAP HORIZONTAL (Y-Axis)
+      let bestDy = Infinity;
+      let bestSnapY = null;
+      let snapLineY = null;
+
+      targets.forEach(target => {
+          const tTop = target.y;
+          const tBottom = target.y + target.height;
+          const tCenterY = target.y + target.height / 2;
+
+          // Points to check on Dragged Element: Top, Center, Bottom
+          const dPoints = [
+              { val: dTop, offset: 0 }, 
+              { val: dCenterY, offset: currentH / 2 }, 
+              { val: dBottom, offset: currentH }
+          ];
+
+          // Points to check on Target: Top, Center, Bottom
+          const tPoints = [tTop, tCenterY, tBottom];
+
+          dPoints.forEach(dp => {
+              tPoints.forEach(tp => {
+                  const dist = tp - dp.val;
+                  if (Math.abs(dist) < SNAP_THRESHOLD && Math.abs(dist) < Math.abs(bestDy)) {
+                      bestDy = dist;
+                      bestSnapY = tp - dp.offset;
+                      snapLineY = tp;
+                  }
+              });
+          });
+      });
+
+      // Apply Snaps
+      if (bestSnapX !== null) {
+          newX = bestSnapX;
+          activeLines.push({ orientation: 'vertical', pos: snapLineX! });
+      }
+      if (bestSnapY !== null) {
+          newY = bestSnapY;
+          activeLines.push({ orientation: 'horizontal', pos: snapLineY! });
+      }
+
+      setSnapLines(activeLines);
+
+      // Prioritize Smart Guides over Manual Guides if both exist, 
+      // but if no smart snap, check manual guides
+      if (bestSnapX === null && canvasSettings.showGuides) {
         newX = snapToGuides(newX, verticalGuides);
+      }
+      if (bestSnapY === null && canvasSettings.showGuides) {
         newY = snapToGuides(newY, horizontalGuides);
       }
+      
       onUpdate(selectedId, { x: newX, y: newY });
+
     } else if (mode === 'resizing' && activeHandle) {
       const dx = mouse.x - dragStart.x;
       const dy = mouse.y - dragStart.y;
@@ -297,6 +412,7 @@ const Canvas: React.FC<CanvasProps> = ({
     setMode('idle');
     setActiveHandle(null);
     setInitialElementState(null);
+    setSnapLines([]); // Clear alignment guides
   };
 
   // Grid Layout logic
@@ -352,7 +468,7 @@ const Canvas: React.FC<CanvasProps> = ({
             cursor: mode === 'dragging_guide' ? (activeGuide?.type === 'horizontal' ? 'row-resize' : 'col-resize') : 'default'
             }}
         >
-            {/* Guides */}
+            {/* Guides (Manual) */}
             {canvasSettings.showGuides && (
             <>
                 {verticalGuides.map((g, i) => (
@@ -388,6 +504,20 @@ const Canvas: React.FC<CanvasProps> = ({
                 )}
             </>
             )}
+
+            {/* Smart Snap Lines (Figma-like red lines) */}
+            {snapLines.map((line, i) => (
+               <div 
+                  key={`snap-${i}`}
+                  className="absolute bg-red-500 z-[60] pointer-events-none"
+                  style={{
+                      left: line.orientation === 'vertical' ? line.pos : 0,
+                      top: line.orientation === 'horizontal' ? line.pos : 0,
+                      width: line.orientation === 'vertical' ? '1px' : '100%',
+                      height: line.orientation === 'horizontal' ? '1px' : '100%',
+                  }}
+               />
+            ))}
 
             {/* Elements */}
             {elements.map(el => {
