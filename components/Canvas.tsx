@@ -18,7 +18,7 @@ interface CanvasProps {
   onRemoveGuide: (type: 'horizontal' | 'vertical', index: number) => void;
 }
 
-type InteractionMode = 'idle' | 'dragging_element' | 'resizing' | 'rotating' | 'dragging_guide';
+type InteractionMode = 'idle' | 'dragging_element' | 'resizing' | 'rotating' | 'dragging_guide' | 'dragging_radius';
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 interface ActiveGuideState {
@@ -49,7 +49,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const [mode, setMode] = useState<InteractionMode>('idle');
   const [activeHandle, setActiveHandle] = useState<ResizeHandle | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [initialElementState, setInitialElementState] = useState<{ x: number, y: number, w: number, h: number, r: number } | null>(null);
+  const [initialElementState, setInitialElementState] = useState<{ x: number, y: number, w: number, h: number, r: number, borderRadius: string } | null>(null);
   
   // Guide Dragging State
   const [activeGuide, setActiveGuide] = useState<ActiveGuideState | null>(null);
@@ -132,7 +132,10 @@ const Canvas: React.FC<CanvasProps> = ({
     setMode('dragging_element');
     const mouse = getMousePos(e);
     setDragStart(mouse);
-    setInitialElementState({ x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0 });
+    setInitialElementState({ 
+        x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0,
+        borderRadius: el.style.borderRadius?.toString() || '0px'
+    });
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent, handle: ResizeHandle) => {
@@ -143,7 +146,10 @@ const Canvas: React.FC<CanvasProps> = ({
     setActiveHandle(handle);
     const mouse = getMousePos(e);
     setDragStart(mouse);
-    setInitialElementState({ x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0 });
+    setInitialElementState({ 
+        x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0,
+        borderRadius: el.style.borderRadius?.toString() || '0px'
+    });
   };
 
   const handleRotateMouseDown = (e: React.MouseEvent) => {
@@ -152,8 +158,24 @@ const Canvas: React.FC<CanvasProps> = ({
     if (!el || el.isLocked) return;
     setMode('rotating');
     const mouse = getMousePos(e); // Not strictly needed for rotation start but consistent
-    setInitialElementState({ x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0 });
+    setInitialElementState({ 
+        x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0,
+        borderRadius: el.style.borderRadius?.toString() || '0px'
+    });
   };
+
+  const handleRadiusMouseDown = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const el = elements.find(e => e.id === selectedId);
+      if (!el || el.isLocked) return;
+      setMode('dragging_radius');
+      const mouse = getMousePos(e);
+      setDragStart(mouse);
+      setInitialElementState({ 
+          x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0,
+          borderRadius: el.style.borderRadius?.toString() || '0px'
+      });
+  }
 
   // Ruler & Guide Handlers
   const handleRulerDragStart = (e: React.MouseEvent, type: 'horizontal' | 'vertical') => {
@@ -162,9 +184,6 @@ const Canvas: React.FC<CanvasProps> = ({
     // Calculate initial pos relative to canvas, accounting for current scroll
     const rect = scrollContainerRef.current?.getBoundingClientRect();
     if (!rect) return;
-
-    // e.clientX is global. We need pos relative to canvas.
-    // However, for creation, we can just track screen delta or use the offset from the ruler.
     // Simpler: Set initial visual pos from mouse, update in move.
     setActiveGuide({ type, pos: type === 'horizontal' ? e.clientY : e.clientX }); 
   };
@@ -229,6 +248,33 @@ const Canvas: React.FC<CanvasProps> = ({
       const angleRad = Math.atan2(mouse.y - cy, mouse.x - cx);
       let angleDeg = (angleRad * 180 / Math.PI) + 90;
       onUpdate(selectedId, { rotation: angleDeg });
+    } else if (mode === 'dragging_radius') {
+        // Simple logic: dragging down/right increases radius, up/left decreases (mostly)
+        // Better logic: calculate distance from mouse to center. 
+        // Or simply: delta Y since most handles move vertically/diagonally.
+        const delta = (mouse.y - dragStart.y) + (mouse.x - dragStart.x); // Rough approximation
+        const initialR = parseInt(initialElementState.borderRadius) || 0;
+        
+        // Let's use a simpler "pull in" mechanic logic
+        // We will assume uniform radius for simplicity in canvas interaction
+        let newR = Math.max(0, initialR + (delta > 0 ? 1 : -1) * Math.sqrt(Math.pow(mouse.x - dragStart.x, 2) + Math.pow(mouse.y - dragStart.y, 2)));
+        
+        // Correct logic: if moving towards center, increase radius. 
+        // Center of element:
+        const cx = initialElementState.x + initialElementState.w / 2;
+        const cy = initialElementState.y + initialElementState.h / 2;
+        const distStartToCenter = Math.hypot(dragStart.x - cx, dragStart.y - cy);
+        const distCurrentToCenter = Math.hypot(mouse.x - cx, mouse.y - cy);
+        
+        // If distance to center is decreasing, we are pulling "in" -> increase radius
+        // Initial Radius + (StartDist - CurrentDist)
+        newR = Math.max(0, initialR + (distStartToCenter - distCurrentToCenter));
+        
+        // Cap max radius
+        const maxR = Math.min(initialElementState.w, initialElementState.h) / 2;
+        newR = Math.min(newR, maxR);
+
+        onUpdate(selectedId, { style: { ...elements.find(e => e.id === selectedId)!.style, borderRadius: `${Math.round(newR)}px` } });
     }
   };
 
@@ -392,6 +438,34 @@ const Canvas: React.FC<CanvasProps> = ({
                     <>
                     <div className="absolute inset-0 border-2 border-blue-500 pointer-events-none"></div>
                     
+                    {/* Radius Handles - Only for Box/Image/Shapes that support it */}
+                    {(el.type === 'box' || el.type === 'image') && (
+                        <>
+                            <div className="absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform"
+                                style={{ top: '16px', left: '16px' }}
+                                onMouseDown={handleRadiusMouseDown}
+                            />
+                            <div className="absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform"
+                                style={{ top: '16px', right: '16px' }}
+                                onMouseDown={handleRadiusMouseDown}
+                            />
+                            <div className="absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform"
+                                style={{ bottom: '16px', left: '16px' }}
+                                onMouseDown={handleRadiusMouseDown}
+                            />
+                            <div className="absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform"
+                                style={{ bottom: '16px', right: '16px' }}
+                                onMouseDown={handleRadiusMouseDown}
+                            />
+                            {/* Radius Label while dragging - centered */}
+                            {mode === 'dragging_radius' && (
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-blue-500 text-white text-xs px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap z-50">
+                                    Radius {parseInt(el.style.borderRadius?.toString() || '0')}
+                                </div>
+                            )}
+                        </>
+                    )}
+
                     {/* Rotation Handle - Moved to Bottom */}
                     <div 
                         className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center cursor-move hover:bg-blue-50 z-30"

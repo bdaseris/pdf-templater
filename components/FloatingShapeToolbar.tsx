@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { EditorElement } from '../types';
-import { GripVertical, Check, ChevronRight, ChevronDown, Trash2, Pipette } from 'lucide-react';
+import { GripVertical, Check, ChevronRight, ChevronDown, Trash2, Pipette, Maximize, CornerUpLeft, CornerUpRight, CornerDownLeft, CornerDownRight, Square } from 'lucide-react';
 
 // --- Color Utility Functions (Enhanced for Alpha/Hex8) ---
 
@@ -505,6 +505,7 @@ const FloatingShapeToolbar: React.FC<FloatingShapeToolbarProps> = ({ element, el
   const [activePopover, setActivePopover] = useState<'fill' | 'border' | 'style' | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
+  const [isRadiusSplit, setIsRadiusSplit] = useState(false);
   
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -520,6 +521,32 @@ const FloatingShapeToolbar: React.FC<FloatingShapeToolbarProps> = ({ element, el
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Parse borderRadius (always returns array of 4 strings with unit)
+  const parseBorderRadius = (radiusStr?: string | number) => {
+      if (!radiusStr) return ['0px', '0px', '0px', '0px'];
+      const str = radiusStr.toString();
+      const parts = str.split(' ');
+      if (parts.length === 1) return [parts[0], parts[0], parts[0], parts[0]];
+      if (parts.length === 2) return [parts[0], parts[1], parts[0], parts[1]];
+      if (parts.length === 3) return [parts[0], parts[1], parts[2], parts[1]];
+      return [parts[0], parts[1], parts[2], parts[3]];
+  };
+
+  const radii = parseBorderRadius(element.style.borderRadius);
+
+  // Helper to update radius
+  const updateRadius = (index: number | 'all', value: number) => {
+      const newRadii = [...radii];
+      const valStr = `${value}px`;
+      
+      if (index === 'all') {
+          onUpdate(element.id, { style: { ...element.style, borderRadius: valStr } });
+      } else {
+          newRadii[index] = valStr;
+          onUpdate(element.id, { style: { ...element.style, borderRadius: newRadii.join(' ') } });
+      }
+  };
 
   // Toolbar Dragging Logic
   useEffect(() => {
@@ -556,7 +583,7 @@ const FloatingShapeToolbar: React.FC<FloatingShapeToolbarProps> = ({ element, el
       initialDragOffsetRef.current = { ...dragOffset };
   };
 
-  if (!element || (element.type !== 'box' && element.type !== 'circle' && element.type !== 'svg')) return null;
+  if (!element || (element.type !== 'box' && element.type !== 'circle' && element.type !== 'svg' && element.type !== 'image')) return null;
 
   const currentFill = element.style.backgroundColor || 'transparent';
   const currentBorderColor = element.style.borderColor || 'transparent';
@@ -657,27 +684,94 @@ const FloatingShapeToolbar: React.FC<FloatingShapeToolbarProps> = ({ element, el
                 onMouseDown={(e) => e.stopPropagation()}
              >
                 <div className="space-y-4">
+                  {/* Stroke Style */}
                   <div>
-                    <label className="text-xs font-bold text-gray-500 uppercase block mb-2">Style</label>
+                    <label className="text-[11px] font-bold text-gray-500 uppercase block mb-2 tracking-wide">Style</label>
                     <div className="flex gap-2">
                        <button onClick={() => onUpdate(element.id, { style: { ...element.style, borderStyle: 'solid' } })} className={`flex-1 h-8 border-2 border-gray-800 rounded hover:bg-gray-50 ${element.style.borderStyle !== 'dashed' && element.style.borderStyle !== 'dotted' ? 'bg-blue-50 border-blue-500' : ''}`}></button>
                        <button onClick={() => onUpdate(element.id, { style: { ...element.style, borderStyle: 'dashed' } })} className={`flex-1 h-8 border-2 border-dashed border-gray-800 rounded hover:bg-gray-50 ${element.style.borderStyle === 'dashed' ? 'bg-blue-50 border-blue-500' : ''}`}></button>
                        <button onClick={() => onUpdate(element.id, { style: { ...element.style, borderStyle: 'dotted' } })} className={`flex-1 h-8 border-2 border-dotted border-gray-800 rounded hover:bg-gray-50 ${element.style.borderStyle === 'dotted' ? 'bg-blue-50 border-blue-500' : ''}`}></button>
                     </div>
                   </div>
+                  
+                  {/* Thickness */}
                   <div>
-                    <div className="flex justify-between mb-1">
-                      <label className="text-xs font-bold text-gray-500 uppercase">Epaisseur</label>
-                      <span className="text-xs text-gray-700">{currentBorderWidth}px</span>
+                    <div className="flex justify-between mb-1 items-center">
+                      <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Epaisseur</label>
+                      <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-1.5 rounded">{currentBorderWidth}</span>
                     </div>
                     <input 
                       type="range" 
                       min="0" max="20" 
                       value={currentBorderWidth}
                       onChange={(e) => onUpdate(element.id, { style: { ...element.style, borderWidth: `${e.target.value}px`, borderColor: currentBorderColor === 'transparent' && parseInt(e.target.value) > 0 ? '#000000' : currentBorderColor } })}
-                      className="w-full accent-blue-600"
+                      className="w-full accent-blue-600 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                     />
                   </div>
+                  
+                  {/* Border Radius Control */}
+                  {(element.type === 'box' || element.type === 'image') && (
+                      <div className="pt-2 border-t border-gray-100">
+                         <div className="flex justify-between items-center mb-2">
+                             <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Rayon</label>
+                             <button 
+                                onClick={() => setIsRadiusSplit(!isRadiusSplit)} 
+                                className={`p-1 rounded hover:bg-gray-100 transition-colors ${isRadiusSplit ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}`}
+                                title={isRadiusSplit ? "Unified Radius" : "Individual Corners"}
+                             >
+                                 <Maximize size={12} />
+                             </button>
+                         </div>
+                         
+                         {!isRadiusSplit ? (
+                             <div className="flex items-center gap-2">
+                                <Square size={14} className="text-gray-400" />
+                                <input 
+                                    type="number" 
+                                    min="0"
+                                    value={parseInt(radii[0])} 
+                                    onChange={(e) => updateRadius('all', parseInt(e.target.value) || 0)}
+                                    className="flex-1 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-xs text-gray-700 focus:outline-none focus:border-blue-500 font-medium"
+                                />
+                             </div>
+                         ) : (
+                             <div className="grid grid-cols-2 gap-2">
+                                 <div className="flex items-center gap-1.5">
+                                     <CornerUpLeft size={12} className="text-gray-400" />
+                                     <input 
+                                         type="number" min="0" value={parseInt(radii[0])} 
+                                         onChange={(e) => updateRadius(0, parseInt(e.target.value) || 0)}
+                                         className="w-full bg-gray-50 border border-gray-200 rounded px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:border-blue-500 font-medium"
+                                     />
+                                 </div>
+                                 <div className="flex items-center gap-1.5">
+                                     <CornerUpRight size={12} className="text-gray-400" />
+                                     <input 
+                                         type="number" min="0" value={parseInt(radii[1])} 
+                                         onChange={(e) => updateRadius(1, parseInt(e.target.value) || 0)}
+                                         className="w-full bg-gray-50 border border-gray-200 rounded px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:border-blue-500 font-medium"
+                                     />
+                                 </div>
+                                 <div className="flex items-center gap-1.5">
+                                     <CornerDownRight size={12} className="text-gray-400" />
+                                     <input 
+                                         type="number" min="0" value={parseInt(radii[2])} 
+                                         onChange={(e) => updateRadius(2, parseInt(e.target.value) || 0)}
+                                         className="w-full bg-gray-50 border border-gray-200 rounded px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:border-blue-500 font-medium"
+                                     />
+                                 </div>
+                                 <div className="flex items-center gap-1.5">
+                                     <CornerDownLeft size={12} className="text-gray-400" />
+                                     <input 
+                                         type="number" min="0" value={parseInt(radii[3])} 
+                                         onChange={(e) => updateRadius(3, parseInt(e.target.value) || 0)}
+                                         className="w-full bg-gray-50 border border-gray-200 rounded px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:border-blue-500 font-medium"
+                                     />
+                                 </div>
+                             </div>
+                         )}
+                      </div>
+                  )}
                 </div>
              </div>
           )}
