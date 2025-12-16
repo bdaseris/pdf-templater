@@ -20,6 +20,7 @@ interface CanvasProps {
 
 type InteractionMode = 'idle' | 'dragging_element' | 'resizing' | 'rotating' | 'dragging_guide' | 'dragging_radius';
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+type RadiusHandle = 'tl' | 'tr' | 'bl' | 'br';
 
 interface ActiveGuideState {
   type: 'horizontal' | 'vertical';
@@ -39,7 +40,7 @@ const Canvas: React.FC<CanvasProps> = ({
   selectedId, 
   onSelect, 
   onUpdate, 
-  onDelete,
+  onDelete, 
   onDuplicate,
   canvasSettings,
   horizontalGuides,
@@ -55,6 +56,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // Interaction State
   const [mode, setMode] = useState<InteractionMode>('idle');
   const [activeHandle, setActiveHandle] = useState<ResizeHandle | null>(null);
+  const [activeRadiusHandle, setActiveRadiusHandle] = useState<RadiusHandle | null>(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [initialElementState, setInitialElementState] = useState<{ x: number, y: number, w: number, h: number, r: number, borderRadius: string } | null>(null);
   
@@ -167,18 +169,19 @@ const Canvas: React.FC<CanvasProps> = ({
     const el = elements.find(e => e.id === selectedId);
     if (!el || el.isLocked) return;
     setMode('rotating');
-    const mouse = getMousePos(e); // Not strictly needed for rotation start but consistent
+    const mouse = getMousePos(e); 
     setInitialElementState({ 
         x: el.x, y: el.y, w: el.width, h: el.height, r: el.rotation || 0,
         borderRadius: el.style.borderRadius?.toString() || '0px'
     });
   };
 
-  const handleRadiusMouseDown = (e: React.MouseEvent) => {
+  const handleRadiusMouseDown = (e: React.MouseEvent, handle: RadiusHandle) => {
       e.stopPropagation();
       const el = elements.find(e => e.id === selectedId);
       if (!el || el.isLocked) return;
       setMode('dragging_radius');
+      setActiveRadiusHandle(handle);
       const mouse = getMousePos(e);
       setDragStart(mouse);
       setInitialElementState({ 
@@ -191,10 +194,6 @@ const Canvas: React.FC<CanvasProps> = ({
   const handleRulerDragStart = (e: React.MouseEvent, type: 'horizontal' | 'vertical') => {
     e.preventDefault();
     setMode('dragging_guide');
-    // Calculate initial pos relative to canvas, accounting for current scroll
-    const rect = scrollContainerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    // Simpler: Set initial visual pos from mouse, update in move.
     setActiveGuide({ type, pos: type === 'horizontal' ? e.clientY : e.clientX }); 
   };
 
@@ -212,7 +211,6 @@ const Canvas: React.FC<CanvasProps> = ({
        if (!canvasRef.current) return;
        const rect = canvasRef.current.getBoundingClientRect();
        
-       // Calculate position relative to the canvas content (0,0 is top-left of A4 page)
        let relativePos = 0;
        if (activeGuide.type === 'horizontal') {
          relativePos = e.clientY - rect.top;
@@ -233,10 +231,8 @@ const Canvas: React.FC<CanvasProps> = ({
       let newX = initialElementState.x + dx;
       let newY = initialElementState.y + dy;
 
-      // --- Smart Guides Logic ---
+      // Smart Guides Logic
       const activeLines: SnapLine[] = [];
-
-      // Calculate candidate points for the element being dragged
       const currentW = initialElementState.w;
       const currentH = initialElementState.h;
       
@@ -248,15 +244,12 @@ const Canvas: React.FC<CanvasProps> = ({
       const dBottom = newY + currentH;
       const dCenterY = newY + currentH / 2;
 
-      // Define targets: Canvas Center + Other Elements
       const targets = [
-        // Canvas Centers
         { id: 'canvas', type: 'canvas', x: 0, y: 0, width: A4_WIDTH, height: A4_HEIGHT },
-        // Other elements
         ...elements.filter(el => el.id !== selectedId && el.isVisible)
       ];
 
-      // SNAP VERTICAL (X-Axis)
+      // SNAP VERTICAL
       let bestDx = Infinity;
       let bestSnapX = null;
       let snapLineX = null;
@@ -266,14 +259,7 @@ const Canvas: React.FC<CanvasProps> = ({
           const tRight = target.x + target.width;
           const tCenterX = target.x + target.width / 2;
 
-          // Points to check on Dragged Element: Left, Center, Right
-          const dPoints = [
-              { val: dLeft, offset: 0 }, 
-              { val: dCenterX, offset: currentW / 2 }, 
-              { val: dRight, offset: currentW }
-          ];
-
-          // Points to check on Target: Left, Center, Right
+          const dPoints = [{ val: dLeft, offset: 0 }, { val: dCenterX, offset: currentW / 2 }, { val: dRight, offset: currentW }];
           const tPoints = [tLeft, tCenterX, tRight];
 
           dPoints.forEach(dp => {
@@ -288,7 +274,7 @@ const Canvas: React.FC<CanvasProps> = ({
           });
       });
 
-      // SNAP HORIZONTAL (Y-Axis)
+      // SNAP HORIZONTAL
       let bestDy = Infinity;
       let bestSnapY = null;
       let snapLineY = null;
@@ -298,14 +284,7 @@ const Canvas: React.FC<CanvasProps> = ({
           const tBottom = target.y + target.height;
           const tCenterY = target.y + target.height / 2;
 
-          // Points to check on Dragged Element: Top, Center, Bottom
-          const dPoints = [
-              { val: dTop, offset: 0 }, 
-              { val: dCenterY, offset: currentH / 2 }, 
-              { val: dBottom, offset: currentH }
-          ];
-
-          // Points to check on Target: Top, Center, Bottom
+          const dPoints = [{ val: dTop, offset: 0 }, { val: dCenterY, offset: currentH / 2 }, { val: dBottom, offset: currentH }];
           const tPoints = [tTop, tCenterY, tBottom];
 
           dPoints.forEach(dp => {
@@ -320,7 +299,6 @@ const Canvas: React.FC<CanvasProps> = ({
           });
       });
 
-      // Apply Snaps
       if (bestSnapX !== null) {
           newX = bestSnapX;
           activeLines.push({ orientation: 'vertical', pos: snapLineX! });
@@ -332,8 +310,6 @@ const Canvas: React.FC<CanvasProps> = ({
 
       setSnapLines(activeLines);
 
-      // Prioritize Smart Guides over Manual Guides if both exist, 
-      // but if no smart snap, check manual guides
       if (bestSnapX === null && canvasSettings.showGuides) {
         newX = snapToGuides(newX, verticalGuides);
       }
@@ -363,31 +339,31 @@ const Canvas: React.FC<CanvasProps> = ({
       const angleRad = Math.atan2(mouse.y - cy, mouse.x - cx);
       let angleDeg = (angleRad * 180 / Math.PI) + 90;
       onUpdate(selectedId, { rotation: angleDeg });
-    } else if (mode === 'dragging_radius') {
-        // Simple logic: dragging down/right increases radius, up/left decreases (mostly)
-        // Better logic: calculate distance from mouse to center. 
-        // Or simply: delta Y since most handles move vertically/diagonally.
-        const delta = (mouse.y - dragStart.y) + (mouse.x - dragStart.x); // Rough approximation
+    } else if (mode === 'dragging_radius' && activeRadiusHandle) {
         const initialR = parseInt(initialElementState.borderRadius) || 0;
+        const dx = mouse.x - dragStart.x;
+        const dy = mouse.y - dragStart.y;
+
+        // Determine change based on which handle is dragged.
+        // Moving "inwards" towards center should increase radius.
+        // Average the dx/dy movement to create a 1:1 feel on diagonal drags
+        let delta = 0;
         
-        // Let's use a simpler "pull in" mechanic logic
-        // We will assume uniform radius for simplicity in canvas interaction
-        let newR = Math.max(0, initialR + (delta > 0 ? 1 : -1) * Math.sqrt(Math.pow(mouse.x - dragStart.x, 2) + Math.pow(mouse.y - dragStart.y, 2)));
+        // Logic: Project vector onto diagonal pointing inwards
+        if (activeRadiusHandle === 'tl') delta = (dx + dy) / 2;
+        if (activeRadiusHandle === 'tr') delta = (-dx + dy) / 2;
+        if (activeRadiusHandle === 'bl') delta = (dx - dy) / 2;
+        if (activeRadiusHandle === 'br') delta = (-dx - dy) / 2;
+
+        // Multiply by 2 roughly to match 1:1 pixel movement with mouse on 45deg
+        // Or simpler: (dx + dy)/2 is technically the projection on (1,1) scaled by sqrt(2) logic
+        // Let's assume standard behavior: moving 10px right should increase R by 10px if TL.
         
-        // Correct logic: if moving towards center, increase radius. 
-        // Center of element:
-        const cx = initialElementState.x + initialElementState.w / 2;
-        const cy = initialElementState.y + initialElementState.h / 2;
-        const distStartToCenter = Math.hypot(dragStart.x - cx, dragStart.y - cy);
-        const distCurrentToCenter = Math.hypot(mouse.x - cx, mouse.y - cy);
+        let newR = initialR + delta;
         
-        // If distance to center is decreasing, we are pulling "in" -> increase radius
-        // Initial Radius + (StartDist - CurrentDist)
-        newR = Math.max(0, initialR + (distStartToCenter - distCurrentToCenter));
-        
-        // Cap max radius
+        // Clamp between 0 and Max Radius (Half of shortest side)
         const maxR = Math.min(initialElementState.w, initialElementState.h) / 2;
-        newR = Math.min(newR, maxR);
+        newR = Math.max(0, Math.min(newR, maxR));
 
         onUpdate(selectedId, { style: { ...elements.find(e => e.id === selectedId)!.style, borderRadius: `${Math.round(newR)}px` } });
     }
@@ -395,8 +371,6 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const handleMouseUp = () => {
     if (mode === 'dragging_guide' && activeGuide) {
-      // Logic to determine if we should delete the guide (dragged off canvas)
-      // "Off canvas" loosely defined as negative coordinate or way past max
       const isRemoval = activeGuide.pos < -20 || 
                        (activeGuide.type === 'horizontal' && activeGuide.pos > A4_HEIGHT + 20) || 
                        (activeGuide.type === 'vertical' && activeGuide.pos > A4_WIDTH + 20);
@@ -411,17 +385,15 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     setMode('idle');
     setActiveHandle(null);
+    setActiveRadiusHandle(null);
     setInitialElementState(null);
-    setSnapLines([]); // Clear alignment guides
+    setSnapLines([]); 
   };
 
-  // Grid Layout logic
-  // If ruler is hidden, size is 0
-  const rulerSize = 24; // 1.5rem / 24px
+  const rulerSize = 24; 
   const topRowHeight = canvasSettings.showHorizontalRuler ? `${rulerSize}px` : '0px';
   const leftColWidth = canvasSettings.showVerticalRuler ? `${rulerSize}px` : '0px';
 
-  // Find selected element for floating toolbar
   const selectedElement = elements.find(el => el.id === selectedId);
 
   return (
@@ -436,14 +408,14 @@ const Canvas: React.FC<CanvasProps> = ({
 
       {/* 2. Horizontal Ruler Track */}
       <div className="relative bg-gray-100 border-b border-gray-300 overflow-hidden z-40">
-         <div style={{ transform: `translateX(-${scrollPos.x - 32}px)`, marginLeft: '32px' /* Padding offset matches canvas padding */ }}> 
+         <div style={{ transform: `translateX(-${scrollPos.x - 32}px)`, marginLeft: '32px' }}> 
            <Ruler orientation="horizontal" length={A4_WIDTH + 200} onDragStart={(e) => handleRulerDragStart(e, 'horizontal')} />
          </div>
       </div>
 
       {/* 3. Vertical Ruler Track */}
       <div className="relative bg-gray-100 border-r border-gray-300 overflow-hidden z-40">
-         <div style={{ transform: `translateY(-${scrollPos.y - 32}px)`, marginTop: '32px' /* Padding offset matches canvas padding */ }}>
+         <div style={{ transform: `translateY(-${scrollPos.y - 32}px)`, marginTop: '32px' }}>
            <Ruler orientation="vertical" length={A4_HEIGHT + 200} onDragStart={(e) => handleRulerDragStart(e, 'vertical')} />
          </div>
       </div>
@@ -492,7 +464,6 @@ const Canvas: React.FC<CanvasProps> = ({
                 </div>
                 ))}
                 
-                {/* Active Dragging Guide Visual */}
                 {activeGuide && (
                 <div 
                     className={`absolute bg-cyan-500 z-50 pointer-events-none ${activeGuide.type === 'horizontal' ? 'w-full h-px' : 'h-full w-px'}`}
@@ -505,7 +476,7 @@ const Canvas: React.FC<CanvasProps> = ({
             </>
             )}
 
-            {/* Smart Snap Lines (Figma-like red lines) */}
+            {/* Smart Snap Lines */}
             {snapLines.map((line, i) => (
                <div 
                   key={`snap-${i}`}
@@ -550,7 +521,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                 d={el.content} 
                                 fill={el.style.backgroundColor || 'transparent'} 
                                 stroke={el.style.borderColor || 'transparent'}
-                                strokeWidth={parseInt(el.style.borderWidth?.toString() || '0') * (100 / el.width)} // Scale stroke relative to viewBox
+                                strokeWidth={parseInt(el.style.borderWidth?.toString() || '0') * (100 / el.width)} 
                                 strokeDasharray={el.style.borderStyle === 'dashed' ? '5,5' : el.style.borderStyle === 'dotted' ? '2,2' : undefined}
                                 vectorEffect="non-scaling-stroke"
                             />
@@ -568,35 +539,64 @@ const Canvas: React.FC<CanvasProps> = ({
                     <>
                     <div className="absolute inset-0 border-2 border-blue-500 pointer-events-none"></div>
                     
-                    {/* Radius Handles - Only for Box/Image/Shapes that support it */}
+                    {/* Radius Handles - Box/Image Only */}
                     {(el.type === 'box' || el.type === 'image') && (
-                        <>
-                            <div className="absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform"
-                                style={{ top: '16px', left: '16px' }}
-                                onMouseDown={handleRadiusMouseDown}
-                            />
-                            <div className="absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform"
-                                style={{ top: '16px', right: '16px' }}
-                                onMouseDown={handleRadiusMouseDown}
-                            />
-                            <div className="absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform"
-                                style={{ bottom: '16px', left: '16px' }}
-                                onMouseDown={handleRadiusMouseDown}
-                            />
-                            <div className="absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform"
-                                style={{ bottom: '16px', right: '16px' }}
-                                onMouseDown={handleRadiusMouseDown}
-                            />
-                            {/* Radius Label while dragging - centered */}
-                            {mode === 'dragging_radius' && (
-                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-blue-500 text-white text-xs px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap z-50">
-                                    Radius {parseInt(el.style.borderRadius?.toString() || '0')}
+                        (() => {
+                           const currentR = parseInt(el.style.borderRadius?.toString() || '0');
+                           // Dynamic Max Radius (Half of shortest side)
+                           const maxR = Math.min(el.width, el.height) / 2;
+                           
+                           // Visual offset logic: Start at 12px (so handle is inside corner) and move to maxR (center)
+                           // The 'Math.max(12, currentR)' ensures handles are visible/clickable even at radius 0.
+                           // The 'Math.min(..., maxR)' ensures visual collision at the center.
+                           const visualOffset = Math.min(Math.max(12, currentR), maxR); 
+                           
+                           // Handle styling
+                           const handleStyle = "absolute w-3 h-3 bg-white border border-blue-500 rounded-full cursor-grab z-40 hover:scale-125 transition-transform flex items-center justify-center";
+                          
+
+                           return (
+                             <>
+                                {/* Top Left */}
+                                <div className={handleStyle}
+                                    style={{ top: `${visualOffset}px`, left: `${visualOffset}px`, transform: 'translate(-50%, -50%)' }}
+                                    onMouseDown={(e) => handleRadiusMouseDown(e, 'tl')}
+                                >
                                 </div>
-                            )}
-                        </>
+                                
+                                {/* Top Right */}
+                                <div className={handleStyle}
+                                    style={{ top: `${visualOffset}px`, right: `${visualOffset}px`, transform: 'translate(50%, -50%)' }}
+                                    onMouseDown={(e) => handleRadiusMouseDown(e, 'tr')}
+                                >
+                                </div>
+                                
+                                {/* Bottom Left */}
+                                <div className={handleStyle}
+                                    style={{ bottom: `${visualOffset}px`, left: `${visualOffset}px`, transform: 'translate(-50%, 50%)' }}
+                                    onMouseDown={(e) => handleRadiusMouseDown(e, 'bl')}
+                                >
+                                </div>
+                                
+                                {/* Bottom Right */}
+                                <div className={handleStyle}
+                                    style={{ bottom: `${visualOffset}px`, right: `${visualOffset}px`, transform: 'translate(50%, 50%)' }}
+                                    onMouseDown={(e) => handleRadiusMouseDown(e, 'br')}
+                                >
+                                </div>
+
+                                {/* Radius Tooltip */}
+                                {mode === 'dragging_radius' && (
+                                    <div className="absolute top-[30%] left-1/2 -translate-x-1/2 -translate-y-1/2 bg-blue-500 text-white text-xs px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap z-50 font-medium">
+                                        Radius {currentR}
+                                    </div>
+                                )}
+                             </>
+                           );
+                        })()
                     )}
 
-                    {/* Rotation Handle - Moved to Bottom */}
+                    {/* Rotation Handle */}
                     <div 
                         className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center cursor-move hover:bg-blue-50 z-30"
                         onMouseDown={handleRotateMouseDown}
@@ -621,7 +621,7 @@ const Canvas: React.FC<CanvasProps> = ({
             );
             })}
             
-            {/* Floating Shape Toolbar rendered here to be relative to canvas content but technically it is absolute positioned by coordinates */}
+            {/* Floating Shape Toolbar */}
             {selectedElement && !selectedElement.isLocked && (
                 <div className="floating-toolbar">
                   <FloatingShapeToolbar element={selectedElement} elements={elements} onUpdate={onUpdate} />

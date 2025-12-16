@@ -62,6 +62,10 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     );
   }
 
+  // Calculate dynamic max radius based on element dimensions (Standard UI behavior like Figma)
+  const currentRadius = parseInt(element.style.borderRadius?.toString() || '0');
+  const maxRadius = Math.round(Math.min(element.width, element.height) / 2);
+
   return (
     <div className="w-80 bg-white border-l border-gray-200 flex flex-col h-full">
       <div className="p-4 border-b border-gray-100 flex justify-between items-center">
@@ -226,31 +230,55 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           </section>
         )}
 
-        {(element.type === 'box' || element.type === 'text') && (
+        {(element.type === 'box' || element.type === 'text' || element.type === 'image') && (
            <section>
             <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Appearance</h4>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Background Color</label>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="color" 
-                    value={element.style.backgroundColor?.toString() || '#ffffff'}
-                    onChange={(e) => handleStyleChange('backgroundColor', e.target.value)}
-                    className="w-full h-8 cursor-pointer text-white"
-                  />
-                </div>
-              </div>
+            <div className="space-y-4">
+              {(element.type === 'box' || element.type === 'text') && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Background Color</label>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="color" 
+                        value={element.style.backgroundColor?.toString() || '#ffffff'}
+                        onChange={(e) => handleStyleChange('backgroundColor', e.target.value)}
+                        className="w-full h-8 cursor-pointer rounded border border-gray-200 text-white"
+                      />
+                    </div>
+                  </div>
+              )}
+               
+               {/* Dynamic Border Radius Control (Figma Style) */}
                <div>
-                <label className="block text-xs text-gray-500 mb-1">Border Radius (px)</label>
-                <input 
-                  type="range" 
-                  min="0"
-                  max="50"
-                  value={parseInt(element.style.borderRadius?.toString() || '0')}
-                  onChange={(e) => handleStyleChange('borderRadius', `${e.target.value}px`)}
-                  className="w-full text-white"
-                />
+                <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs text-gray-500">Border Radius</label>
+                    {/* Show simple value if uniform, or 'Mixed' if complex string */}
+                    <span className="text-[10px] text-gray-400">
+                        {element.style.borderRadius?.toString().includes(' ') ? 'Mixed' : (currentRadius + 'px')}
+                    </span>
+                </div>
+                <div className="flex gap-2 items-center">
+                    <input 
+                        type="range" 
+                        min="0"
+                        max={maxRadius} // Dynamic max: Half of the smallest dimension
+                        value={Math.min(currentRadius, maxRadius)}
+                        onChange={(e) => handleStyleChange('borderRadius', `${e.target.value}px`)}
+                        className="flex-1 accent-blue-600 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <input 
+                        type="number"
+                        min="0"
+                        max={maxRadius}
+                        value={currentRadius}
+                        onChange={(e) => {
+                            let val = parseInt(e.target.value);
+                            if (val > maxRadius) val = maxRadius;
+                            handleStyleChange('borderRadius', `${val}px`)
+                        }}
+                        className="w-14 px-1 py-1 border border-gray-300 rounded text-xs text-right focus:outline-none focus:border-blue-500 font-medium text-white"
+                    />
+                </div>
               </div>
             </div>
            </section>
