@@ -287,11 +287,11 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
 
   return (
     <div 
-        className="flex w-[480px] h-[310px] bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden text-slate-800 font-sans" 
+        className="flex w-[480px] h-[280px] bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden text-slate-800 font-sans" 
         onMouseDown={e => e.stopPropagation()}
     >
       {/* Left Column: Picker Controls */}
-      <div className="w-[210px] p-3 flex flex-col gap-3 border-r border-gray-100 bg-white z-10 shrink-0">
+      <div className="w-[240px] p-3 flex flex-col gap-3 border-r border-gray-100 bg-white z-10 shrink-0">
         
         {/* Header: Tabs & Tools */}
         <div className="flex items-center justify-between">
@@ -415,7 +415,7 @@ const CustomColorPicker: React.FC<CustomColorPickerProps> = ({ color, onChange, 
                         spellCheck={false}
                     />
                 </div>
-                <div className="w-12 flex items-center border border-gray-300 rounded px-1 bg-white h-7 hover:border-gray-400 transition-colors">
+                <div className="w-16 flex items-center border border-gray-300 rounded px-1 bg-white h-7 hover:border-gray-400 transition-colors">
                     <input 
                         type="number"
                         min="0" max="100"
