@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { EditorElement } from '../types';
-import { GripVertical, Check, ChevronRight, ChevronDown, Trash2, Pipette, Maximize, CornerUpLeft, CornerUpRight, CornerDownLeft, CornerDownRight, Square } from 'lucide-react';
+import { GripVertical, ChevronRight, ChevronDown, Trash2, Pipette, Maximize, CornerUpLeft, CornerUpRight, CornerDownLeft, CornerDownRight, Square } from 'lucide-react';
 
 // --- Color Utility Functions (Enhanced for Alpha/Hex8) ---
 
@@ -735,20 +735,20 @@ const FloatingShapeToolbar: React.FC<FloatingShapeToolbarProps> = ({ element, el
                                 />
                              </div>
                          ) : (
-                             <div className="grid grid-cols-2 gap-2">
-                                 <div className="flex items-center gap-1.5">
-                                     <CornerUpLeft size={12} className="text-gray-400" />
-                                     <input 
-                                         type="number" min="0" value={parseInt(radii[0])} 
-                                         onChange={(e) => updateRadius(0, parseInt(e.target.value) || 0)}
-                                         className="w-full bg-gray-50 border border-gray-200 rounded px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:border-blue-500 font-medium"
-                                     />
-                                 </div>
+                             <div className="grid grid-cols-2 gap-2">                                 
                                  <div className="flex items-center gap-1.5">
                                      <CornerUpRight size={12} className="text-gray-400" />
                                      <input 
                                          type="number" min="0" value={parseInt(radii[1])} 
                                          onChange={(e) => updateRadius(1, parseInt(e.target.value) || 0)}
+                                         className="w-full bg-gray-50 border border-gray-200 rounded px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:border-blue-500 font-medium"
+                                     />
+                                 </div>
+                                 <div className="flex items-center gap-1.5">
+                                     <CornerUpLeft size={12} className="text-gray-400" />
+                                     <input 
+                                         type="number" min="0" value={parseInt(radii[0])} 
+                                         onChange={(e) => updateRadius(0, parseInt(e.target.value) || 0)}
                                          className="w-full bg-gray-50 border border-gray-200 rounded px-1.5 py-1 text-xs text-gray-700 focus:outline-none focus:border-blue-500 font-medium"
                                      />
                                  </div>
